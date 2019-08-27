@@ -6,36 +6,41 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
-	"github.com/go-kit/kit/log"
-	qapi "github.com/improbable-eng/thanos/pkg/query/api"
-	thanosrule "github.com/improbable-eng/thanos/pkg/rule"
-	"github.com/improbable-eng/thanos/pkg/store/storepb"
-	"github.com/improbable-eng/thanos/pkg/tracing"
-	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/go-kit/kit/log"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/rules"
+	extpromhttp "github.com/thanos-io/thanos/pkg/extprom/http"
+	qapi "github.com/thanos-io/thanos/pkg/query/api"
+	thanosrule "github.com/thanos-io/thanos/pkg/rule"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
+	"github.com/thanos-io/thanos/pkg/tracing"
 )
 
 type API struct {
 	logger        log.Logger
 	now           func() time.Time
 	ruleRetriever RulesRetriever
+	reg           prometheus.Registerer
 }
 
 func NewAPI(
 	logger log.Logger,
+	reg prometheus.Registerer,
 	ruleRetriever RulesRetriever,
 ) *API {
 	return &API{
 		logger:        logger,
 		now:           time.Now,
 		ruleRetriever: ruleRetriever,
+		reg:           reg,
 	}
 }
 
-func (api *API) Register(r *route.Router, tracer opentracing.Tracer, logger log.Logger) {
+func (api *API) Register(r *route.Router, tracer opentracing.Tracer, logger log.Logger, ins extpromhttp.InstrumentationMiddleware) {
 	instr := func(name string, f qapi.ApiFunc) http.HandlerFunc {
 		hf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			qapi.SetCORS(w)
@@ -47,12 +52,11 @@ func (api *API) Register(r *route.Router, tracer opentracing.Tracer, logger log.
 				w.WriteHeader(http.StatusNoContent)
 			}
 		})
-		return prometheus.InstrumentHandler(name, tracing.HTTPMiddleware(tracer, name, logger, gziphandler.GzipHandler(hf)))
+		return ins.NewHandler(name, tracing.HTTPMiddleware(tracer, name, logger, gziphandler.GzipHandler(hf)))
 	}
 
 	r.Get("/alerts", instr("alerts", api.alerts))
 	r.Get("/rules", instr("rules", api.rules))
-
 }
 
 type RulesRetriever interface {

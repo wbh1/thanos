@@ -30,20 +30,20 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
-	"github.com/improbable-eng/thanos/pkg/compact"
-	"github.com/improbable-eng/thanos/pkg/query"
-	"github.com/improbable-eng/thanos/pkg/testutil"
 	opentracing "github.com/opentracing/opentracing-go"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/timestamp"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/thanos-io/thanos/pkg/compact"
+	extpromhttp "github.com/thanos-io/thanos/pkg/extprom/http"
+	"github.com/thanos-io/thanos/pkg/query"
+	"github.com/thanos-io/thanos/pkg/testutil"
 )
 
 func testQueryableCreator(queryable storage.Queryable) query.QueryableCreator {
-	return func(_ bool, _ int64, _ bool, _ query.WarningReporter) storage.Queryable {
+	return func(_ bool, _ int64, _ bool) storage.Queryable {
 		return queryable
 	}
 }
@@ -69,9 +69,6 @@ func TestEndpoints(t *testing.T) {
 	api := &API{
 		queryableCreate: testQueryableCreator(suite.Storage()),
 		queryEngine:     suite.QueryEngine(),
-
-		instantQueryDuration: prometheus.NewHistogram(prometheus.HistogramOpts{}),
-		rangeQueryDuration:   prometheus.NewHistogram(prometheus.HistogramOpts{}),
 
 		now: func() time.Time { return now },
 	}
@@ -301,6 +298,14 @@ func TestEndpoints(t *testing.T) {
 				labels.FromStrings("__name__", "test_metric2", "foo", "boo"),
 			},
 		},
+		// Series that does not exist should return an empty array.
+		{
+			endpoint: api.series,
+			query: url.Values{
+				"match[]": []string{`foobar`},
+			},
+			response: []labels.Labels{},
+		},
 		{
 			endpoint: api.series,
 			query: url.Values{
@@ -336,7 +341,7 @@ func TestEndpoints(t *testing.T) {
 				"start":   []string{"-2"},
 				"end":     []string{"-1"},
 			},
-			response: []labels.Labels(nil),
+			response: []labels.Labels{},
 		},
 		// Start and end after series ends.
 		{
@@ -346,7 +351,7 @@ func TestEndpoints(t *testing.T) {
 				"start":   []string{"100000"},
 				"end":     []string{"100001"},
 			},
-			response: []labels.Labels(nil),
+			response: []labels.Labels{},
 		},
 		// Start before series starts, end after series ends.
 		{
@@ -457,7 +462,7 @@ func TestEndpoints(t *testing.T) {
 				"start":   []string{"-2"},
 				"end":     []string{"-1"},
 			},
-			response: []labels.Labels(nil),
+			response: []labels.Labels{},
 		},
 		// Start and end after series ends.
 		{
@@ -467,7 +472,7 @@ func TestEndpoints(t *testing.T) {
 				"start":   []string{"100000"},
 				"end":     []string{"100001"},
 			},
-			response: []labels.Labels(nil),
+			response: []labels.Labels{},
 		},
 		// Start before series starts, end after series ends.
 		{
@@ -774,7 +779,7 @@ func TestParseDuration(t *testing.T) {
 func TestOptionsMethod(t *testing.T) {
 	r := route.New()
 	api := &API{}
-	api.Register(r, &opentracing.NoopTracer{}, log.NewNopLogger())
+	api.Register(r, &opentracing.NoopTracer{}, log.NewNopLogger(), extpromhttp.NewNopInstrumentationMiddleware())
 
 	s := httptest.NewServer(r)
 	defer s.Close()

@@ -2,8 +2,8 @@ package receive
 
 import (
 	"github.com/go-kit/kit/log"
-	"github.com/improbable-eng/thanos/pkg/store/prompb"
 	"github.com/pkg/errors"
+	"github.com/prometheus/prometheus/prompb"
 
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/storage"

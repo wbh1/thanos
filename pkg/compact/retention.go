@@ -6,12 +6,12 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/improbable-eng/thanos/pkg/block"
-	"github.com/improbable-eng/thanos/pkg/objstore"
 	"github.com/pkg/errors"
+	"github.com/thanos-io/thanos/pkg/block"
+	"github.com/thanos-io/thanos/pkg/objstore"
 )
 
-// Apply removes blocks depending on the specified retentionByResolution based on blocks MaxTime.
+// ApplyRetentionPolicyByResolution removes blocks depending on the specified retentionByResolution based on blocks MaxTime.
 // A value of 0 disables the retention for its resolution.
 func ApplyRetentionPolicyByResolution(ctx context.Context, logger log.Logger, bkt objstore.Bucket, retentionByResolution map[ResolutionLevel]time.Duration) error {
 	level.Info(logger).Log("msg", "start optional retention")

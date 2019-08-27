@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/improbable-eng/thanos/pkg/testutil"
+	"github.com/thanos-io/thanos/pkg/testutil"
 )
 
 func TestParseConfig(t *testing.T) {
@@ -99,4 +99,37 @@ http_config:
 	testutil.Ok(t, validate(cfg2))
 
 	testutil.Equals(t, "bucket-owner-full-control", cfg2.PutUserMetadata["X-Amz-Acl"])
+}
+
+func TestParseConfig_PartSize(t *testing.T) {
+	input := []byte(`bucket: "bucket-name"
+endpoint: "s3-endpoint"
+access_key: "access_key"
+insecure: false
+signature_version2: false
+encrypt_sse: false
+secret_key: "secret_key"
+http_config:
+  insecure_skip_verify: false
+  idle_conn_timeout: 50s`)
+
+	cfg, err := parseConfig(input)
+	testutil.Ok(t, err)
+	testutil.Assert(t, cfg.PartSize == 1024*1024*128, "when part size not set it should default to 128MiB")
+
+	input2 := []byte(`bucket: "bucket-name"
+endpoint: "s3-endpoint"
+access_key: "access_key"
+insecure: false
+signature_version2: false
+encrypt_sse: false
+secret_key: "secret_key"
+part_size: 104857600
+http_config:
+  insecure_skip_verify: false
+  idle_conn_timeout: 50s`)
+
+	cfg2, err := parseConfig(input2)
+	testutil.Ok(t, err)
+	testutil.Assert(t, cfg2.PartSize == 1024*1024*100, "when part size should be set to 100MiB")
 }

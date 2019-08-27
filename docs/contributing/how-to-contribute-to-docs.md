@@ -14,7 +14,7 @@ To make that happen we use following rules and helpers that are listed here
 
 ## Front Matter
 
-[Front Matter](https://gohugo.io/content-management/front-matter/) is essential on top of every markdown file if 
+[Front Matter](https://gohugo.io/content-management/front-matter/) is essential on top of every markdown file if
 you want to link this file into any menu/submenu option. We use YAML formatting. This will render
 in GitHub as markdown just fine:
 
@@ -24,7 +24,7 @@ in GitHub as markdown just fine:
 title: <titke>
 type: ...
 weight: <weight>
-menu: <where to link files in>  # This also is refered in permalinks.
+menu: <where to link files in>  # This also is referred in permalinks.
 ---
 ```
 
@@ -60,15 +60,16 @@ Keep `menu` the same as sub-directory the file is in. This will help to manage a
 
 Show new menu section in main page by changing `website/layouts/_default/baseof.html` file.
 
-## Logos
+## Adopters Logos
 
 We'd love to showcase your company's logo on our main page and README!
 Requirements for the company:
+
 * it is using Thanos on production
 * it is a legal registered company
 * it is happy to announce that you use Thanos publicly
 
-If all those are met, add yourself in [`website/data/sponsors.yml`](/website/data/sponsors.yml) like so:
+If all those are met, add yourself in [`website/data/adopters.yml`](/website/data/adopters.yml) like so:
 
 ```yml
 - name: My Awesome Company

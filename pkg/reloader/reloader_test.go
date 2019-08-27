@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
-	"github.com/improbable-eng/thanos/pkg/testutil"
+	"github.com/thanos-io/thanos/pkg/testutil"
 )
 
 func TestReloader_ConfigApply(t *testing.T) {
@@ -211,7 +211,7 @@ func TestReloader_RuleApply(t *testing.T) {
 	testutil.Ok(t, ioutil.WriteFile(path.Join(dir2, "rule3-source.yaml"), []byte("rule3"), os.ModePerm))
 	testutil.Ok(t, ioutil.WriteFile(path.Join(dir2, "rule-dir", "rule4.yaml"), []byte("rule4"), os.ModePerm))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	g := sync.WaitGroup{}
 	g.Add(1)
 	go func() {

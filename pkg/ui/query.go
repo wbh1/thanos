@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
-	"github.com/improbable-eng/thanos/pkg/component"
-	"github.com/improbable-eng/thanos/pkg/query"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/common/version"
+	"github.com/thanos-io/thanos/pkg/component"
+	extpromhttp "github.com/thanos-io/thanos/pkg/extprom/http"
+	"github.com/thanos-io/thanos/pkg/query"
 )
 
 type Query struct {
@@ -26,6 +27,7 @@ type Query struct {
 
 	cwd   string
 	birth time.Time
+	reg   prometheus.Registerer
 	now   func() model.Time
 }
 
@@ -38,7 +40,7 @@ type thanosVersion struct {
 	GoVersion string `json:"goVersion"`
 }
 
-func NewQueryUI(logger log.Logger, storeSet *query.StoreSet, flagsMap map[string]string) *Query {
+func NewQueryUI(logger log.Logger, reg prometheus.Registerer, storeSet *query.StoreSet, flagsMap map[string]string) *Query {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "<error retrieving current working directory>"
@@ -49,6 +51,7 @@ func NewQueryUI(logger log.Logger, storeSet *query.StoreSet, flagsMap map[string
 		flagsMap: flagsMap,
 		cwd:      cwd,
 		birth:    time.Now(),
+		reg:      reg,
 		now:      model.Now,
 	}
 }
@@ -66,8 +69,10 @@ func queryTmplFuncs() template.FuncMap {
 }
 
 // Register registers new GET routes for subpages and retirects from / to /graph.
-func (q *Query) Register(r *route.Router) {
-	instrf := prometheus.InstrumentHandlerFunc
+func (q *Query) Register(r *route.Router, ins extpromhttp.InstrumentationMiddleware) {
+	instrf := func(name string, next func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+		return ins.NewHandler(name, http.HandlerFunc(next))
+	}
 
 	r.Get("/", instrf("root", q.root))
 	r.Get("/graph", instrf("graph", q.graph))

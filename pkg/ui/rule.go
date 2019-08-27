@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
-	thanosrule "github.com/improbable-eng/thanos/pkg/rule"
-	"github.com/improbable-eng/thanos/pkg/store/storepb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/rules"
+	extpromhttp "github.com/thanos-io/thanos/pkg/extprom/http"
+	thanosrule "github.com/thanos-io/thanos/pkg/rule"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
 )
 
 type Rule struct {
@@ -25,14 +26,16 @@ type Rule struct {
 
 	ruleManagers thanosrule.Managers
 	queryURL     string
+	reg          prometheus.Registerer
 }
 
-func NewRuleUI(logger log.Logger, ruleManagers map[storepb.PartialResponseStrategy]*rules.Manager, queryURL string, flagsMap map[string]string) *Rule {
+func NewRuleUI(logger log.Logger, reg prometheus.Registerer, ruleManagers map[storepb.PartialResponseStrategy]*rules.Manager, queryURL string, flagsMap map[string]string) *Rule {
 	return &Rule{
 		BaseUI:       NewBaseUI(logger, "rule_menu.html", ruleTmplFuncs(queryURL)),
 		flagsMap:     flagsMap,
 		ruleManagers: ruleManagers,
 		queryURL:     queryURL,
+		reg:          reg,
 	}
 }
 
@@ -95,7 +98,7 @@ func ruleTmplFuncs(queryURL string) template.FuncMap {
 				if minutes != 0 {
 					return fmt.Sprintf("%s%dm %ds", sign, minutes, seconds)
 				}
-				// For seconds, we display 4 significant digts.
+				// For seconds, we display 4 significant digits.
 				return fmt.Sprintf("%s%.4gs", sign, v)
 			}
 			prefix := ""
@@ -145,8 +148,10 @@ func (ru *Rule) root(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, path.Join(prefix, "/alerts"), http.StatusFound)
 }
 
-func (ru *Rule) Register(r *route.Router) {
-	instrf := prometheus.InstrumentHandlerFunc
+func (ru *Rule) Register(r *route.Router, ins extpromhttp.InstrumentationMiddleware) {
+	instrf := func(name string, next func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+		return ins.NewHandler(name, http.HandlerFunc(next))
+	}
 
 	r.Get("/", instrf("root", ru.root))
 	r.Get("/alerts", instrf("alerts", ru.alerts))

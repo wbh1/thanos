@@ -16,17 +16,6 @@ import (
 	"github.com/go-kit/kit/log/level"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/improbable-eng/thanos/pkg/component"
-	"github.com/improbable-eng/thanos/pkg/discovery/cache"
-	"github.com/improbable-eng/thanos/pkg/discovery/dns"
-	"github.com/improbable-eng/thanos/pkg/extprom"
-	"github.com/improbable-eng/thanos/pkg/query"
-	v1 "github.com/improbable-eng/thanos/pkg/query/api"
-	"github.com/improbable-eng/thanos/pkg/runutil"
-	"github.com/improbable-eng/thanos/pkg/store"
-	"github.com/improbable-eng/thanos/pkg/store/storepb"
-	"github.com/improbable-eng/thanos/pkg/tracing"
-	"github.com/improbable-eng/thanos/pkg/ui"
 	"github.com/oklog/run"
 	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
@@ -35,7 +24,19 @@ import (
 	"github.com/prometheus/prometheus/discovery/file"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/promql"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb/labels"
+	"github.com/thanos-io/thanos/pkg/component"
+	"github.com/thanos-io/thanos/pkg/discovery/cache"
+	"github.com/thanos-io/thanos/pkg/discovery/dns"
+	"github.com/thanos-io/thanos/pkg/extprom"
+	extpromhttp "github.com/thanos-io/thanos/pkg/extprom/http"
+	"github.com/thanos-io/thanos/pkg/query"
+	v1 "github.com/thanos-io/thanos/pkg/query/api"
+	"github.com/thanos-io/thanos/pkg/runutil"
+	"github.com/thanos-io/thanos/pkg/store"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
+	"github.com/thanos-io/thanos/pkg/tracing"
+	"github.com/thanos-io/thanos/pkg/ui"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
@@ -314,7 +315,7 @@ func runQuery(
 				Logger:        logger,
 				Reg:           reg,
 				MaxConcurrent: maxConcurrentQueries,
-				// TODO(bwplotka): Expose this as a flag: https://github.com/improbable-eng/thanos/issues/703
+				// TODO(bwplotka): Expose this as a flag: https://github.com/thanos-io/thanos/issues/703
 				MaxSamples: math.MaxInt32,
 				Timeout:    queryTimeout,
 			},
@@ -397,11 +398,12 @@ func runQuery(
 			"web.prefix-header":   webPrefixHeaderName,
 		}
 
-		ui.NewQueryUI(logger, stores, flagsMap).Register(router.WithPrefix(webRoutePrefix))
+		ins := extpromhttp.NewInstrumentationMiddleware(reg)
+		ui.NewQueryUI(logger, reg, stores, flagsMap).Register(router.WithPrefix(webRoutePrefix), ins)
 
 		api := v1.NewAPI(logger, reg, engine, queryableCreator, enableAutodownsampling, enablePartialResponse)
 
-		api.Register(router.WithPrefix(path.Join(webRoutePrefix, "/api/v1")), tracer, logger)
+		api.Register(router.WithPrefix(path.Join(webRoutePrefix, "/api/v1")), tracer, logger, ins)
 
 		router.Get("/-/healthy", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -448,7 +450,6 @@ func runQuery(
 			return errors.Wrap(s.Serve(l), "serve gRPC")
 		}, func(error) {
 			s.Stop()
-			runutil.CloseWithLogOnErr(logger, l, "store gRPC listener")
 		})
 	}
 

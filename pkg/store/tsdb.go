@@ -6,14 +6,14 @@ import (
 	"sort"
 
 	"github.com/go-kit/kit/log"
-	"github.com/improbable-eng/thanos/pkg/component"
-	"github.com/improbable-eng/thanos/pkg/runutil"
-	"github.com/improbable-eng/thanos/pkg/store/storepb"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/tsdb"
-	"github.com/prometheus/tsdb/chunkenc"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	"github.com/prometheus/prometheus/tsdb/labels"
+	"github.com/thanos-io/thanos/pkg/component"
+	"github.com/thanos-io/thanos/pkg/runutil"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,29 +22,29 @@ import (
 // It attaches the provided external labels to all results. It only responds with raw data
 // and does not support downsampling.
 type TSDBStore struct {
-	logger    log.Logger
-	db        *tsdb.DB
-	component component.SourceStoreAPI
-	labels    labels.Labels
+	logger         log.Logger
+	db             *tsdb.DB
+	component      component.SourceStoreAPI
+	externalLabels labels.Labels
 }
 
 // NewTSDBStore creates a new TSDBStore.
-func NewTSDBStore(logger log.Logger, reg prometheus.Registerer, db *tsdb.DB, component component.SourceStoreAPI, externalLabels labels.Labels) *TSDBStore {
+func NewTSDBStore(logger log.Logger, _ prometheus.Registerer, db *tsdb.DB, component component.SourceStoreAPI, externalLabels labels.Labels) *TSDBStore {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
 	return &TSDBStore{
-		logger:    logger,
-		db:        db,
-		component: component,
-		labels:    externalLabels,
+		logger:         logger,
+		db:             db,
+		component:      component,
+		externalLabels: externalLabels,
 	}
 }
 
 // Info returns store information about the Prometheus instance.
 func (s *TSDBStore) Info(ctx context.Context, r *storepb.InfoRequest) (*storepb.InfoResponse, error) {
 	res := &storepb.InfoResponse{
-		Labels:    make([]storepb.Label, 0, len(s.labels)),
+		Labels:    make([]storepb.Label, 0, len(s.externalLabels)),
 		StoreType: s.component.ToProto(),
 		MinTime:   0,
 		MaxTime:   math.MaxInt64,
@@ -52,7 +52,7 @@ func (s *TSDBStore) Info(ctx context.Context, r *storepb.InfoRequest) (*storepb.
 	if blocks := s.db.Blocks(); len(blocks) > 0 {
 		res.MinTime = blocks[0].Meta().MinTime
 	}
-	for _, l := range s.labels {
+	for _, l := range s.externalLabels {
 		res.Labels = append(res.Labels, storepb.Label{
 			Name:  l.Name,
 			Value: l.Value,
@@ -73,13 +73,19 @@ func (s *TSDBStore) Info(ctx context.Context, r *storepb.InfoRequest) (*storepb.
 // Series returns all series for a requested time range and label matcher. The returned data may
 // exceed the requested time bounds.
 func (s *TSDBStore) Series(r *storepb.SeriesRequest, srv storepb.Store_SeriesServer) error {
-	match, newMatchers, err := labelsMatches(s.labels, r.Matchers)
+	match, newMatchers, err := matchesExternalLabels(r.Matchers, s.externalLabels)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+
 	if !match {
 		return nil
 	}
+
+	if len(newMatchers) == 0 {
+		return status.Error(codes.InvalidArgument, errors.New("no matchers specified (excluding external labels)").Error())
+	}
+
 	matchers, err := translateMatchers(newMatchers)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
@@ -107,13 +113,13 @@ func (s *TSDBStore) Series(r *storepb.SeriesRequest, srv storepb.Store_SeriesSer
 		// limited benefit for now.
 		// NOTE: XOR encoding supports a max size of 2^16 - 1 samples, so we need
 		// to chunk all samples into groups of no more than 2^16 - 1
-		// See: https://github.com/improbable-eng/thanos/pull/1038
+		// See: https://github.com/thanos-io/thanos/pull/1038
 		c, err := s.encodeChunks(series.Iterator(), math.MaxUint16)
 		if err != nil {
 			return status.Errorf(codes.Internal, "encode chunk: %s", err)
 		}
 
-		respSeries.Labels = s.translateAndExtendLabels(series.Labels(), s.labels)
+		respSeries.Labels = s.translateAndExtendLabels(series.Labels(), s.externalLabels)
 		respSeries.Chunks = append(respSeries.Chunks[:0], c...)
 
 		if err := srv.Send(storepb.NewSeriesResponse(&respSeries)); err != nil {

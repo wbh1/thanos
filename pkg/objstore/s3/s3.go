@@ -18,19 +18,23 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/improbable-eng/thanos/pkg/objstore"
-	"github.com/improbable-eng/thanos/pkg/runutil"
 	minio "github.com/minio/minio-go/v6"
 	"github.com/minio/minio-go/v6/pkg/credentials"
 	"github.com/minio/minio-go/v6/pkg/encrypt"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/version"
+	"github.com/thanos-io/thanos/pkg/objstore"
+	"github.com/thanos-io/thanos/pkg/runutil"
 	yaml "gopkg.in/yaml.v2"
 )
 
 // DirDelim is the delimiter used to model a directory structure in an object store bucket.
 const DirDelim = "/"
+
+// Minimum file size after which an HTTP multipart request should be used to upload objects to storage.
+// Set to 128 MiB as in the minio client.
+const defaultMinPartSize = 1024 * 1024 * 128
 
 // Config stores the configuration for s3 bucket.
 type Config struct {
@@ -45,6 +49,7 @@ type Config struct {
 	PutUserMetadata map[string]string `yaml:"put_user_metadata"`
 	HTTPConfig      HTTPConfig        `yaml:"http_config"`
 	TraceConfig     TraceConfig       `yaml:"trace"`
+	PartSize        uint64            `yaml:"part_size"`
 }
 
 type TraceConfig struct {
@@ -65,6 +70,7 @@ type Bucket struct {
 	client          *minio.Client
 	sse             encrypt.ServerSide
 	putUserMetadata map[string]string
+	partSize        uint64
 }
 
 // parseConfig unmarshals a buffer into a Config with default HTTPConfig values.
@@ -81,6 +87,11 @@ func parseConfig(conf []byte) (Config, error) {
 	if config.PutUserMetadata == nil {
 		config.PutUserMetadata = make(map[string]string)
 	}
+
+	if config.PartSize == 0 {
+		config.PartSize = defaultMinPartSize
+	}
+
 	return config, nil
 }
 
@@ -94,7 +105,7 @@ func NewBucket(logger log.Logger, conf []byte, component string) (*Bucket, error
 	return NewBucketWithConfig(logger, config, component)
 }
 
-// NewBucket returns a new Bucket using the provided s3 config values.
+// NewBucketWithConfig returns a new Bucket using the provided s3 config values.
 func NewBucketWithConfig(logger log.Logger, config Config, component string) (*Bucket, error) {
 	var chain []credentials.Provider
 
@@ -174,6 +185,7 @@ func NewBucketWithConfig(logger log.Logger, config Config, component string) (*B
 		client:          client,
 		sse:             sse,
 		putUserMetadata: config.PutUserMetadata,
+		partSize:        config.PartSize,
 	}
 	return bkt, nil
 }
@@ -298,7 +310,7 @@ func (b *Bucket) guessFileSize(name string, r io.Reader) int64 {
 
 // Upload the contents of the reader as an object into the bucket.
 func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
-	// TODO(https://github.com/improbable-eng/thanos/issues/678): Remove guessing length when minio provider will support multipart upload without this.
+	// TODO(https://github.com/thanos-io/thanos/issues/678): Remove guessing length when minio provider will support multipart upload without this.
 	fileSize := b.guessFileSize(name, r)
 
 	if _, err := b.client.PutObjectWithContext(
@@ -308,6 +320,7 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 		r,
 		fileSize,
 		minio.PutObjectOptions{
+			PartSize:             b.partSize,
 			ServerSideEncryption: b.sse,
 			UserMetadata:         b.putUserMetadata,
 		},

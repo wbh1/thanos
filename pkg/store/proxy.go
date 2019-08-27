@@ -13,13 +13,13 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
-	"github.com/improbable-eng/thanos/pkg/component"
-	"github.com/improbable-eng/thanos/pkg/store/storepb"
-	"github.com/improbable-eng/thanos/pkg/strutil"
-	"github.com/improbable-eng/thanos/pkg/tracing"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb/labels"
+	"github.com/thanos-io/thanos/pkg/component"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
+	"github.com/thanos-io/thanos/pkg/strutil"
+	"github.com/thanos-io/thanos/pkg/tracing"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -181,12 +181,16 @@ func (s ctxRespSender) send(r *storepb.SeriesResponse) {
 // Series returns all series for a requested time range and label matcher. Requested series are taken from other
 // stores and proxied to RPC client. NOTE: Resulted data are not trimmed exactly to min and max time range.
 func (s *ProxyStore) Series(r *storepb.SeriesRequest, srv storepb.Store_SeriesServer) error {
-	match, newMatchers, err := labelsMatches(s.selectorLabels, r.Matchers)
+	match, newMatchers, err := matchesExternalLabels(r.Matchers, s.selectorLabels)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	if !match {
 		return nil
+	}
+
+	if len(newMatchers) == 0 {
+		return status.Error(codes.InvalidArgument, errors.New("no matchers specified (excluding external labels)").Error())
 	}
 
 	var (
@@ -220,7 +224,7 @@ func (s *ProxyStore) Series(r *storepb.SeriesRequest, srv storepb.Store_SeriesSe
 		for _, st := range s.stores() {
 			// We might be able to skip the store if its meta information indicates
 			// it cannot have series matching our query.
-			// NOTE: all matchers are validated in labelsMatches method so we explicitly ignore error.
+			// NOTE: all matchers are validated in matchesExternalLabels method so we explicitly ignore error.
 			spanStoreMathes, gctx := tracing.StartSpan(gctx, "store_matches")
 			ok, _ := storeMatches(st, r.MinTime, r.MaxTime, r.Matchers...)
 			spanStoreMathes.Finish()

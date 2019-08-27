@@ -13,16 +13,16 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/improbable-eng/thanos/pkg/block"
-	"github.com/improbable-eng/thanos/pkg/block/metadata"
-	"github.com/improbable-eng/thanos/pkg/compact/downsample"
-	"github.com/improbable-eng/thanos/pkg/objstore"
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/tsdb"
-	terrors "github.com/prometheus/tsdb/errors"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb"
+	terrors "github.com/prometheus/prometheus/tsdb/errors"
+	"github.com/prometheus/prometheus/tsdb/labels"
+	"github.com/thanos-io/thanos/pkg/block"
+	"github.com/thanos-io/thanos/pkg/block/metadata"
+	"github.com/thanos-io/thanos/pkg/compact/downsample"
+	"github.com/thanos-io/thanos/pkg/objstore"
 )
 
 type ResolutionLevel int64
@@ -265,7 +265,7 @@ func (c *Syncer) downloadMeta(ctx context.Context, id ulid.ULID) (*metadata.Meta
 	// - repair created blocks
 	// - compactor created blocks
 	// NOTE: It is not safe to miss "old" block (even that it is newly created) in sync step. Compactor needs to aware of ALL old blocks.
-	// TODO(bplotka): https://github.com/improbable-eng/thanos/issues/377
+	// TODO(bplotka): https://github.com/thanos-io/thanos/issues/377
 	if ulid.Now()-id.Time() < uint64(c.consistencyDelay/time.Millisecond) &&
 		meta.Thanos.Source != metadata.BucketRepairSource &&
 		meta.Thanos.Source != metadata.CompactorSource &&
@@ -589,7 +589,7 @@ func (e Issue347Error) Error() string {
 	return e.err.Error()
 }
 
-// Issue347Error returns true if the base error is a Issue347Error.
+// IsIssue347Error returns true if the base error is a Issue347Error.
 func IsIssue347Error(err error) bool {
 	_, ok := errors.Cause(err).(Issue347Error)
 	return ok
@@ -958,7 +958,7 @@ func NewBucketCompactor(
 	concurrency int,
 ) (*BucketCompactor, error) {
 	if concurrency <= 0 {
-		return nil, errors.New("invalid concurrency level (%d), concurrency level must be > 0")
+		return nil, errors.Errorf("invalid concurrency level (%d), concurrency level must be > 0", concurrency)
 	}
 	return &BucketCompactor{
 		logger:      logger,
